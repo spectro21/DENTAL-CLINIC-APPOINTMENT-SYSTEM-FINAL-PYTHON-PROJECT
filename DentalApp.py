@@ -5,6 +5,8 @@ from uuid import uuid4
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
+import mysql.connector
+from database_manager import DatabaseManager, create_database
 
 
 # -------------------------
@@ -33,12 +35,24 @@ class Appointment:
 class AppointmentManager:
     def __init__(self):
         self.appointments: Dict[str, Appointment] = {}
-        self.dentists = ["Dr. Jhunsoy Love Jun", "Dr. Jograd Ballesteros ", "Dr. Beyoncé Calubaquib",
-                         "Dr. Estanislao Manansala", "Dr.  Federico Liwanag VII", "Dr. Vergamino Antiporda",
-                         "Dr. Princess Payapa Pamplona"]
-        # Admin credentials (in real app, use proper authentication)
+        self.db = DatabaseManager()
+        # UNCOMMENT ONLY ON FIRST RUN TO CREATE DATABASE:
+        #create_database()
+
+        self.dentists = [
+            "Dr. Jhunsoy Love Jun",
+            "Dr. Jograd Ballesteros",
+            "Dr. Beyoncé Calubaquib",
+            "Dr. Estanislao Manansala",
+            "Dr. Federico Liwanag VII",
+            "Dr. Vergamino Antiporda",
+            "Dr. Princess Payapa Pamplona"
+        ]
+
+        # Admin credentials
         self.admin_username = "admin"
         self.admin_password = "admin123"
+
         # Available time slots
         self.time_slots = [
             "08:00 AM", "08:30 AM", "09:00 AM", "09:30 AM",
@@ -52,22 +66,35 @@ class AppointmentManager:
         """Verify admin credentials"""
         return username == self.admin_username and password == self.admin_password
 
-    def reserve(self, patient: Patient, date: str, time: str, dentist: str) -> Optional[Appointment]:
-        # Check if the time slot is already taken for this dentist and date
-        for appt in self.appointments.values():
-            if appt.dentist == dentist and appt.date == date and appt.time == time:
-                return None  # Time slot already taken
+    def reserve(self, patient: Patient, date: str, time: str, dentist: str, reason: str = "") -> Optional[Appointment]:
+        """Reserve appointment - checks database and saves to DB"""
+        # Check database for availability
+        if not self.db.check_slot_available(dentist, date, time):
+            return None
+
+        # Get or create patient in database
+        patient_result = self.db.get_patient_by_email(patient.email)
+        if patient_result:
+            patient_id = patient_result[0]
+        else:
+            self.db.add_patient(patient.name, patient.email, "N/A")
+            patient_result = self.db.get_patient_by_email(patient.email)
+            patient_id = patient_result[0]
+
+        # Create appointment
         appt_id = str(uuid4())[:8]
         appointment = Appointment(appt_id, patient, date, time, dentist, "Pending")
+
+        # Save to database
+        self.db.add_appointment(patient_id, appt_id, date, time, dentist, reason)
+
+        # Keep in-memory copy too
         self.appointments[appt_id] = appointment
         return appointment
 
     def is_time_slot_available(self, dentist: str, date: str, time: str) -> bool:
         """Check if a time slot is available for a specific dentist and date"""
-        for appt in self.appointments.values():
-            if appt.dentist == dentist and appt.date == date and appt.time == time:
-                return False
-        return True
+        return self.db.check_slot_available(dentist, date, time)
 
     def get_available_slots(self, dentist: str, date: str) -> List[str]:
         """Get all available time slots for a dentist on a specific date"""
@@ -78,20 +105,30 @@ class AppointmentManager:
         return available
 
     def cancel(self, appt_id: str) -> bool:
-        return self.appointments.pop(appt_id, None) is not None
+        """Cancel appointment by ID"""
+        # Try to delete from database first
+        result = self.db.delete_appointment_by_uuid(appt_id)
+
+        # Also remove from in-memory if it exists
+        if appt_id in self.appointments:
+            del self.appointments[appt_id]
+
+        return result
 
     def cancel_by_email(self, email: str) -> bool:
         """Cancel appointment by patient email"""
-        for appt_id, appt in list(self.appointments.items()):
-            if appt.patient.email == email:
-                del self.appointments[appt_id]
-                return True
+        if self.db.delete_appointment_by_email(email):
+            for appt_id, appt in list(self.appointments.items()):
+                if appt.patient.email == email:
+                    del self.appointments[appt_id]
+            return True
         return False
 
     def confirm_appointment(self, appt_id: str) -> bool:
         """Confirm an appointment"""
         if appt_id in self.appointments:
             self.appointments[appt_id].status = "Confirmed"
+            self.db.update_appointment_status(appt_id, "Confirmed")
             return True
         return False
 
@@ -99,12 +136,36 @@ class AppointmentManager:
         """Decline an appointment"""
         if appt_id in self.appointments:
             self.appointments[appt_id].status = "Declined"
+            self.db.update_appointment_status(appt_id, "Declined")
             return True
         return False
 
     def all_appointments(self) -> List[Appointment]:
-        return list(self.appointments.values())
+        """Retrieve all appointments from database"""
+        results = self.db.get_all_appointments()
+        appointments = []
+        for row in results:
+            appt_id, name, email, date, time, dentist, status, reason = row
+            patient = Patient(name, email)
+            appt = Appointment(appt_id, patient, date, time, dentist, status)
+            appointments.append(appt)
+        return appointments
 
+    def rebook(self, email: str, new_date: str, new_time: str, dentist: str, reason: str = "") -> Optional[Appointment]:
+        """Cancel old appointment by email and book a new one"""
+        # Get old patient info before canceling
+        patient_result = self.db.get_patient_by_email(email)
+        if not patient_result:
+            return None
+
+        name = patient_result[1]
+
+        # Cancel old appointment
+        self.cancel_by_email(email)
+
+        # Create new appointment with same patient info
+        patient = Patient(name=name, email=email)
+        return self.reserve(patient, new_date, new_time, dentist, reason)
 
 # -------------------------
 # GUI Application
@@ -1004,7 +1065,7 @@ class DentalApp:
                 return
 
             patient = Patient(name, email)
-            appt = self.manager.reserve(patient, date, time, dentist)
+            appt = self.manager.reserve(patient, date, time, dentist, reason)
 
             if appt:
                 messagebox.showinfo(
