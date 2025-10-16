@@ -180,7 +180,7 @@ class DentalApp:
 
         # ---------- Load background image once ----------
         try:
-            original_image = Image.open("clinic.bg.png")
+            original_image = Image.open("ASSETS/clinic.bg.png")
             resized = original_image.resize((1200, 700), Image.LANCZOS)
             self.bg_photo = ImageTk.PhotoImage(resized)
             self.bg_label = tk.Label(self.root, image=self.bg_photo)
@@ -203,17 +203,9 @@ class DentalApp:
     def show_main_menu(self):
         self.clear_container()
 
-        # HEADER
-        header = tk.Label(
-            self.bg_label,
-            text="TOOTHPEARL DENTAL CLINIC",
-            font=("Impact", 32, "bold"),
-            bg="#000000",
-            fg="white"
-        )
-        header.place(x=40, y=80)
 
-        # NAV BAR
+
+        # NAV UPPER BUTTONS
         nav_buttons = [
             ("SERVICES", self.show_services),
             ("PRICING", self.show_pricing),
@@ -242,7 +234,7 @@ class DentalApp:
             btn.bind("<FocusIn>", lambda e: e.widget.config(relief="flat"))
             btn.bind("<FocusOut>", lambda e: e.widget.config(relief="flat"))
 
-        # ACTION BUTTONS (3 buttons now, removed VIEW APPOINTMENTS)
+
         button_actions = [
             ("BOOK NOW", self.book_appointment_form),
             ("CANCEL BOOKING", self.cancel_appointment_form),
@@ -270,7 +262,7 @@ class DentalApp:
             btn.bind("<FocusIn>", lambda e: e.widget.config(relief="flat"))
             btn.bind("<FocusOut>", lambda e: e.widget.config(relief="flat"))
 
-        # EXIT BUTTON (4th position, same color as other buttons)
+        # EXIT BUTTON
         exit_btn = tk.Button(
             self.bg_label,
             text="EXIT",
@@ -291,7 +283,7 @@ class DentalApp:
         exit_btn.bind("<FocusIn>", lambda e: e.widget.config(relief="flat"))
         exit_btn.bind("<FocusOut>", lambda e: e.widget.config(relief="flat"))
 
-        # ADMIN LOGIN BUTTON (small yellow button, moved to far right)
+        # ADMIN LOGIN BUTTON
         admin_btn = tk.Button(
             self.bg_label,
             text="Log In",
